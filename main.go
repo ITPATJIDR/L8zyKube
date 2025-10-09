@@ -88,6 +88,19 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			var cmd tea.Cmd
 
+			// Handle Enter key in ApiResourceWidget
+			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
+				if m.focusedWidget == 1 && msg.String() == tea.KeyEnter.String() {
+					selectedResource := apiResourceWidget.GetSelectedApiResource()
+					if selectedResource != "" {
+						// Here you can add logic to display resources of the selected type
+						// For now, we'll just print it
+						fmt.Printf("Selected API Resource: %s\n", selectedResource)
+					}
+					return m, nil
+				}
+			}
+
 			if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
 				if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 					if m.focusedWidget == 0 && msg.String() == tea.KeyEnter.String() {
@@ -114,6 +127,19 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if selectedNS != "" {
 							namespaceWidget.SetSelectedNameSpace(selectedNS)
 							mainContentWidget.SetSelectionNameSpace(false)
+
+							// Load API resources for the selected namespace
+							if m.kubeClient != nil {
+								if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
+									apiResources, err := m.kubeClient.GetAPIResources()
+									if err != nil {
+										fmt.Printf("Error fetching API resources: %v\n", err)
+									} else {
+										apiResourceWidget.SetApiResourceList(apiResources)
+									}
+								}
+							}
+
 							// Switch focus back to NameSpace widget
 							m.widgets[2].SetFocused(false)
 							m.widgets[0].SetFocused(true)

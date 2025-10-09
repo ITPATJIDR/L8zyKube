@@ -145,32 +145,28 @@ func (m *MainContentWidget) View() string {
 |_____|___|_____| |_| |__|__|_____|_____|_____|
 `
 
-		// Create styled ASCII art with proper width centering
 		styledAscii := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")). // Pink/magenta color
+			Foreground(lipgloss.Color("205")).
 			Bold(true).
 			Align(lipgloss.Center).
-			Width(m.width - 4). // Account for widget padding
+			Width(m.width - 4).
 			Render(asciiArt)
 
-		// Add welcome text with proper width centering
 		welcomeText := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("87")). // Light blue
+			Foreground(lipgloss.Color("87")).
 			Bold(true).
 			Align(lipgloss.Center).
-			Width(m.width-4). // Account for widget padding
+			Width(m.width-4).
 			Margin(0, 0, 1, 0).
 			Render("Welcome to L8zyKube!")
 
-		// Add instruction text with proper width centering
 		instructionText := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")). // Gray
+			Foreground(lipgloss.Color("240")).
 			Align(lipgloss.Center).
-			Width(m.width-4). // Account for widget padding
+			Width(m.width-4).
 			Margin(1, 0, 0, 0).
 			Render("Press Enter in NameSpace widget to select a namespace")
 
-		// Combine all elements and center them
 		content = lipgloss.JoinVertical(
 			lipgloss.Center,
 			welcomeText,
