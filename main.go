@@ -88,19 +88,14 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			var cmd tea.Cmd
 
-			// Handle Enter key on NameSpace widget to switch to MainContent and start selection
 			if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
 				if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
-					// If Enter is pressed on NameSpace widget, switch focus to MainContent and start selection
 					if m.focusedWidget == 0 && msg.String() == tea.KeyEnter.String() {
-						// Switch focus to MainContent widget
 						m.widgets[0].SetFocused(false)
 						m.widgets[2].SetFocused(true)
 						m.focusedWidget = 2
-						// Enable namespace selection mode
 						mainContentWidget.SetSelectionNameSpace(true)
 
-						// Fetch namespaces if we have a kube client
 						if m.kubeClient != nil {
 							namespaces, err := m.kubeClient.GetNamespaces()
 							if err != nil {
