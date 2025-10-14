@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	widgets "l8zykube/Widgets"
 	"l8zykube/kubernetes"
+	widgets "l8zykube/widgets"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -31,6 +31,18 @@ func initialModel() MainModel {
 		fmt.Printf("Warning: Could not connect to Kubernetes: %v\n", err)
 	}
 
+	// Load API resources immediately using default namespace (list is cluster-wide types)
+	if kubeClient != nil {
+		if apiResources, err := kubeClient.GetAPIResources(); err != nil {
+			fmt.Printf("Error fetching API resources: %v\n", err)
+		} else {
+			// Avoid package alias shadowing by asserting against a local interface
+			if arw, ok := widgets[1].(interface{ SetApiResourceList([]string) }); ok {
+				arw.SetApiResourceList(apiResources)
+			}
+		}
+	}
+
 	return MainModel{
 		widgets:       widgets,
 		focusedWidget: 0,
@@ -54,26 +66,30 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "j", "k":
-			// Check if we're in namespace selection mode - if so, don't switch widgets
+			// If MainContent is in selection mode or resources-active, route j/k to it
 			if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
-				if mainContentWidget.SelectionNameSpace && m.focusedWidget == 2 {
-					// We're in selection mode, let the MainContent widget handle j/k
-					// Don't switch widgets, just pass the key to the focused widget
+				if m.focusedWidget == 2 && (mainContentWidget.SelectionNameSpace || mainContentWidget.IsResourcesActive()) {
 					var cmd tea.Cmd
 					m.widgets[m.focusedWidget], cmd = m.widgets[m.focusedWidget].Update(msg)
 					return m, cmd
 				}
 			}
 
-			// Normal widget switching behavior
+			// If ApiResourceWidget is focused and activated, route j/k to it
+			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
+				if m.focusedWidget == 1 && apiResourceWidget.IsListActive() {
+					var cmd tea.Cmd
+					m.widgets[m.focusedWidget], cmd = m.widgets[m.focusedWidget].Update(msg)
+					return m, cmd
+				}
+			}
+
+			// Otherwise, switch widgets
 			oldIndex := m.focusedWidget
-
-			switch msg.String() {
-			case "j":
+			if msg.String() == "j" {
 				m.focusedWidget--
-			case "k":
+			} else {
 				m.focusedWidget++
-
 			}
 			if m.focusedWidget < 0 {
 				m.focusedWidget = len(m.widgets) - 1
@@ -88,16 +104,29 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			var cmd tea.Cmd
 
-			// Handle Enter key in ApiResourceWidget
 			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
 				if m.focusedWidget == 1 && msg.String() == tea.KeyEnter.String() {
-					selectedResource := apiResourceWidget.GetSelectedApiResource()
-					if selectedResource != "" {
-						// Here you can add logic to display resources of the selected type
-						// For now, we'll just print it
-						fmt.Printf("Selected API Resource: %s\n", selectedResource)
+					var cmd tea.Cmd
+					m.widgets[1], cmd = m.widgets[1].Update(msg)
+					// If already active, Enter selects and we fetch details
+					if apiResourceWidget.IsListActive() {
+						selectedResource := apiResourceWidget.GetSelectedApiResource()
+						if selectedResource != "" && m.kubeClient != nil {
+							// Determine current namespace
+							currentNS := "default"
+							if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
+								currentNS = namespaceWidget.GetSelectedNameSpace()
+							}
+							// Fetch resources and render in main content
+							resources, err := m.kubeClient.GetResourceListDetailed(selectedResource, currentNS)
+							if err != nil {
+								fmt.Printf("Error fetching %s in %s: %v\n", selectedResource, currentNS, err)
+							} else if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
+								mainContent.SetResourcesDetailed(fmt.Sprintf("%s in %s", selectedResource, currentNS), resources)
+							}
+						}
 					}
-					return m, nil
+					return m, cmd
 				}
 			}
 
@@ -140,7 +169,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								}
 							}
 
-							// Switch focus back to NameSpace widget
 							m.widgets[2].SetFocused(false)
 							m.widgets[0].SetFocused(true)
 							m.focusedWidget = 0
@@ -148,9 +176,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 
-					// Handle Escape key in MainContent when in selection mode
 					if m.focusedWidget == 2 && mainContentWidget.SelectionNameSpace && msg.String() == tea.KeyEscape.String() {
-						// Exit selection mode and switch back to NameSpace widget
 						mainContentWidget.SetSelectionNameSpace(false)
 						m.widgets[2].SetFocused(false)
 						m.widgets[0].SetFocused(true)
@@ -171,9 +197,9 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m MainModel) View() string {
 	namespaceWidth := 30
 	apiResourceWidth := 30
-	apiResourceHeight := m.height - 9
+	apiResourceHeight := m.height - 8
 	mainContentWidth := m.width - namespaceWidth - 4
-	mainContentHeight := m.height - 4
+	mainContentHeight := m.height - 3
 
 	if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
 		namespaceWidget.SetDimensions(namespaceWidth, 0)

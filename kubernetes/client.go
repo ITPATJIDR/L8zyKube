@@ -127,10 +127,11 @@ func (k *KubeClient) GetPodsDetailed(namespace string) ([]ResourceInfo, error) {
 			restarts += containerStatus.RestartCount
 		}
 
-		// Calculate age
+		// Calculate age in hours
 		age := "Unknown"
 		if !pod.CreationTimestamp.IsZero() {
-			age = time.Since(pod.CreationTimestamp.Time).Round(time.Second).String()
+			hours := int(time.Since(pod.CreationTimestamp.Time).Hours())
+			age = fmt.Sprintf("%dh", hours)
 		}
 
 		// Get IP
@@ -197,10 +198,11 @@ func (k *KubeClient) GetServicesDetailed(namespace string) ([]ResourceInfo, erro
 			ports = fmt.Sprintf("%d/%s", port.Port, port.Protocol)
 		}
 
-		// Calculate age
+		// Calculate age in hours
 		age := "Unknown"
 		if !service.CreationTimestamp.IsZero() {
-			age = time.Since(service.CreationTimestamp.Time).Round(time.Second).String()
+			hours := int(time.Since(service.CreationTimestamp.Time).Hours())
+			age = fmt.Sprintf("%dh", hours)
 		}
 
 		serviceList = append(serviceList, ResourceInfo{
@@ -242,10 +244,11 @@ func (k *KubeClient) GetDeploymentsDetailed(namespace string) ([]ResourceInfo, e
 			status = "Progressing"
 		}
 
-		// Calculate age
+		// Calculate age in hours
 		age := "Unknown"
 		if !deployment.CreationTimestamp.IsZero() {
-			age = time.Since(deployment.CreationTimestamp.Time).Round(time.Second).String()
+			hours := int(time.Since(deployment.CreationTimestamp.Time).Hours())
+			age = fmt.Sprintf("%dh", hours)
 		}
 
 		deploymentList = append(deploymentList, ResourceInfo{
