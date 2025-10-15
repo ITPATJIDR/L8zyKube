@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -351,4 +352,32 @@ func (k *KubeClient) TestConnection() error {
 		return fmt.Errorf("failed to connect to Kubernetes cluster: %v", err)
 	}
 	return nil
+}
+
+// GetPodLogs retrieves logs from a specific pod
+func (k *KubeClient) GetPodLogs(namespace, podName string, tailLines int64) (string, error) {
+	podLogOpts := &corev1.PodLogOptions{
+		TailLines: &tailLines,
+	}
+
+	req := k.clientset.CoreV1().Pods(namespace).GetLogs(podName, podLogOpts)
+	podLogs, err := req.Stream(context.TODO())
+	if err != nil {
+		return "", fmt.Errorf("failed to get logs for pod %s in namespace %s: %v", podName, namespace, err)
+	}
+	defer podLogs.Close()
+
+	buf := make([]byte, 0, 1024*1024) // 1MB buffer
+	tmp := make([]byte, 1024)
+	for {
+		n, err := podLogs.Read(tmp)
+		if n > 0 {
+			buf = append(buf, tmp[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	return string(buf), nil
 }

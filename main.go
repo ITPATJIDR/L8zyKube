@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"l8zykube/components"
 	"l8zykube/kubernetes"
 	widgets "l8zykube/widgets"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,6 +17,10 @@ type MainModel struct {
 	width         int
 	height        int
 	kubeClient    *kubernetes.KubeClient
+	modal         *components.Modal
+	logsModal     *components.LogsModal
+	showModal     bool
+	showLogsModal bool
 }
 
 func initialModel() MainModel {
@@ -27,26 +33,36 @@ func initialModel() MainModel {
 	widgets[0].SetFocused(true)
 
 	kubeClient, err := kubernetes.NewKubeClient()
+	showModal := false
 	if err != nil {
 		fmt.Printf("Warning: Could not connect to Kubernetes: %v\n", err)
+		showModal = true
 	}
 
-	// Load API resources immediately using default namespace (list is cluster-wide types)
 	if kubeClient != nil {
 		if apiResources, err := kubeClient.GetAPIResources(); err != nil {
 			fmt.Printf("Error fetching API resources: %v\n", err)
 		} else {
-			// Avoid package alias shadowing by asserting against a local interface
 			if arw, ok := widgets[1].(interface{ SetApiResourceList([]string) }); ok {
 				arw.SetApiResourceList(apiResources)
 			}
 		}
 	}
 
+	modal := components.NewModal()
+	logsModal := components.NewLogsModal()
+	if showModal {
+		modal.ShowError("Kubernetes Connection Failed", "Could not connect to Kubernetes cluster.\nPlease check your kubeconfig and cluster status.", "Q")
+	}
+
 	return MainModel{
 		widgets:       widgets,
 		focusedWidget: 0,
 		kubeClient:    kubeClient,
+		modal:         modal,
+		logsModal:     logsModal,
+		showModal:     showModal,
+		showLogsModal: false,
 	}
 }
 
@@ -62,10 +78,137 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c", "q", "Q":
+			if m.showModal {
+				m.modal.Hide()
+				m.showModal = false
+				return m, nil
+			}
+			if m.showLogsModal {
+				m.logsModal.Hide()
+				m.showLogsModal = false
+				return m, nil
+			}
 			return m, tea.Quit
 
+		case tea.KeyEscape.String():
+			if m.showModal {
+				m.modal.Hide()
+				m.showModal = false
+				return m, nil
+			}
+			if m.showLogsModal {
+				m.logsModal.Hide()
+				m.showLogsModal = false
+				return m, nil
+			}
+			// If ApiResourceWidget is active, deactivate it
+			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
+				if apiResourceWidget.IsListActive() {
+					var cmd tea.Cmd
+					m.widgets[1], cmd = m.widgets[1].Update(msg)
+					return m, cmd
+				}
+			}
+			// If MainContent is in selection mode, exit it
+			if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
+				if mainContentWidget.SelectionNameSpace {
+					mainContentWidget.SetSelectionNameSpace(false)
+					m.widgets[2].SetFocused(false)
+					m.widgets[0].SetFocused(true)
+					m.focusedWidget = 0
+					return m, nil
+				}
+			}
+
+		case "ctrl+l":
+			if m.kubeClient != nil {
+				if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
+					selected := mainContentWidget.GetSelectedResource()
+					if selected != nil && selected.Type == "Pod" {
+						logs, err := m.kubeClient.GetPodLogs(selected.Namespace, selected.Name, 1000)
+						if err != nil {
+							m.modal.ShowError("Logs Error", fmt.Sprintf("Failed to get logs:\n%v", err), "Close")
+							m.showModal = true
+						} else {
+							logLineCount := len(strings.Split(logs, "\n"))
+							m.logsModal.Show(fmt.Sprintf("Pod Logs: %s (namespace: %s) - %d lines", selected.Name, selected.Namespace, logLineCount), logs)
+							m.logsModal.SetDimensions(m.width, m.height)
+							m.showLogsModal = true
+						}
+						return m, nil
+					} else {
+						m.modal.ShowError("No Pod Selected", "Please select a pod to view logs", "Close")
+						m.showModal = true
+						return m, nil
+					}
+				}
+			} else {
+				m.modal.ShowError("No Connection", "Not connected to Kubernetes cluster", "Close")
+				m.showModal = true
+				return m, nil
+			}
+			return m, nil
+
+		case "up":
+			if m.showLogsModal {
+				m.logsModal.ScrollUp()
+				return m, nil
+			}
+
+		case "down":
+			if m.showLogsModal {
+				m.logsModal.ScrollDown()
+				return m, nil
+			}
+
+		case "pgup":
+			if m.showLogsModal {
+				m.logsModal.PageUp()
+				return m, nil
+			}
+
+		case "pgdown":
+			if m.showLogsModal {
+				m.logsModal.PageDown()
+				return m, nil
+			}
+
+		case "home", "g":
+			if m.showLogsModal {
+				m.logsModal.ScrollToTop()
+				return m, nil
+			}
+
+		case "end", "G":
+			if m.showLogsModal {
+				m.logsModal.ScrollToBottom()
+				return m, nil
+			}
+
+		case "left", "h":
+			if m.showModal {
+				m.modal.PrevButton()
+				return m, nil
+			}
+
+		case "right", "l":
+			if m.showModal {
+				m.modal.NextButton()
+				return m, nil
+			}
+
 		case "j", "k":
+			// If logs modal is showing, handle scrolling
+			if m.showLogsModal {
+				if msg.String() == "j" {
+					m.logsModal.ScrollDown()
+				} else {
+					m.logsModal.ScrollUp()
+				}
+				return m, nil
+			}
+
 			// If MainContent is in selection mode or resources-active, route j/k to it
 			if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 				if m.focusedWidget == 2 && (mainContentWidget.SelectionNameSpace || mainContentWidget.IsResourcesActive()) {
@@ -213,6 +356,30 @@ func (m MainModel) View() string {
 
 	vertical := lipgloss.JoinVertical(lipgloss.Top, m.widgets[0].View(), m.widgets[1].View())
 	horizontal := lipgloss.JoinHorizontal(lipgloss.Top, vertical, m.widgets[2].View())
+
+	if m.showLogsModal {
+		logsContent := m.logsModal.Render()
+		logsStyle := lipgloss.NewStyle().
+			Width(m.width).
+			Height(m.height).
+			Align(lipgloss.Center, lipgloss.Center)
+
+		overlay := logsStyle.Render(logsContent)
+		return overlay
+	}
+
+	// If modal is showing, overlay it on top
+	if m.showModal {
+		modalContent := m.modal.Render()
+		// Center the modal on screen
+		modalStyle := lipgloss.NewStyle().
+			Width(m.width).
+			Height(m.height).
+			Align(lipgloss.Center, lipgloss.Center)
+
+		overlay := modalStyle.Render(modalContent)
+		return overlay
+	}
 
 	return horizontal
 }

@@ -49,7 +49,7 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 			} else if len(a.ApiResourceList) > 0 && a.selectedIndex >= 0 && a.selectedIndex < len(a.ApiResourceList) {
 				a.selectedApiResource = a.ApiResourceList[a.selectedIndex]
 			}
-		case "esc":
+		case tea.KeyEscape.String():
 			a.listActive = false
 		}
 

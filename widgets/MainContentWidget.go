@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"fmt"
 	"l8zykube/components"
 	kubetypes "l8zykube/kubernetes"
 
@@ -49,6 +50,7 @@ func (m *MainContentWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 			if len(m.resourceTable.Resources) > 0 {
 				m.resourceTable.SetActive(true)
 			}
+
 		case tea.KeyEscape.String():
 			m.resourceTable.SetActive(false)
 		}
@@ -67,6 +69,11 @@ func (m *MainContentWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 				m.resourceTable.ScrollToTop()
 			case "end", "G":
 				m.resourceTable.ScrollToBottom()
+			case "ctrl+l":
+				fmt.Println("ctrl+l")
+				fmt.Println(m.GetSelectedResource().Name)
+				fmt.Println(m.GetSelectedResource().Namespace)
+				return m, nil
 			}
 		}
 	}
@@ -128,7 +135,6 @@ func (m *MainContentWidget) View() string {
 	return style.Render(content)
 }
 
-// Public API to set resources for rendering
 func (m *MainContentWidget) SetResourcesDetailed(title string, resources []kubetypes.ResourceInfo) {
 	m.resourceTable.SetResources(title, resources)
 }
