@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -30,6 +35,8 @@ type ResourceInfo struct {
 type KubeClient struct {
 	clientset *kubernetes.Clientset
 	config    *rest.Config
+	dynamic   dynamic.Interface
+	disco     discovery.DiscoveryInterface
 }
 
 // NewKubeClient creates a new Kubernetes client
@@ -52,9 +59,23 @@ func NewKubeClient() (*KubeClient, error) {
 		return nil, fmt.Errorf("failed to create clientset: %v", err)
 	}
 
+	// Create dynamic client
+	dyn, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dynamic client: %v", err)
+	}
+
+	// Discovery client
+	discoClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create discovery client: %v", err)
+	}
+
 	return &KubeClient{
 		clientset: clientset,
 		config:    config,
+		dynamic:   dyn,
+		disco:     discoClient,
 	}, nil
 }
 
@@ -93,6 +114,96 @@ func (k *KubeClient) GetAPIResources() ([]string, error) {
 	}
 
 	return resources, nil
+}
+
+// resolveResourceGVR attempts to resolve a resource string (e.g., "pods",
+// "deployments", "ingresses.networking.k8s.io") to a GroupVersionResource.
+// It returns the GVR and whether the resource is namespaced.
+func (k *KubeClient) resolveResourceGVR(resource string) (schema.GroupVersionResource, bool, error) {
+	resource = strings.ToLower(strings.TrimSpace(resource))
+	if resource == "" {
+		return schema.GroupVersionResource{}, false, fmt.Errorf("resource cannot be empty")
+	}
+
+	// Split optional group qualifier: e.g. "ingresses.networking.k8s.io"
+	parts := strings.Split(resource, ".")
+	wantResource := parts[0]
+	wantGroup := ""
+	if len(parts) > 1 {
+		wantGroup = strings.Join(parts[1:], ".")
+	}
+
+	// Query preferred resources from discovery
+	lists, err := k.disco.ServerPreferredResources()
+	if err != nil {
+		return schema.GroupVersionResource{}, false, fmt.Errorf("failed to discover resources: %v", err)
+	}
+
+	for _, rl := range lists {
+		gv, err := schema.ParseGroupVersion(rl.GroupVersion)
+		if err != nil {
+			continue
+		}
+		// If a group was specified, only consider matching groups
+		if wantGroup != "" && gv.Group != wantGroup {
+			continue
+		}
+		for _, ar := range rl.APIResources {
+			// Skip subresources (contain "/")
+			if strings.Contains(ar.Name, "/") {
+				continue
+			}
+			if strings.EqualFold(ar.Name, wantResource) {
+				return schema.GroupVersionResource{Group: gv.Group, Version: gv.Version, Resource: ar.Name}, ar.Namespaced, nil
+			}
+			// Also allow matching by Kind (singular), converting to plural may be tricky;
+			// we support exact name match primarily.
+		}
+	}
+	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource: %s", resource)
+}
+
+// listGenericResources lists any resource via the dynamic client and converts it
+// to a minimal []ResourceInfo for UI consumption.
+func (k *KubeClient) listGenericResources(resource, namespace string) ([]ResourceInfo, error) {
+	gvr, namespaced, err := k.resolveResourceGVR(resource)
+	if err != nil {
+		return nil, err
+	}
+
+	var ulist *unstructured.UnstructuredList
+	if namespaced {
+		ulist, err = k.dynamic.Resource(gvr).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+	} else {
+		ulist, err = k.dynamic.Resource(gvr).List(context.TODO(), metav1.ListOptions{})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to list %s: %v", resource, err)
+	}
+
+	results := make([]ResourceInfo, 0, len(ulist.Items))
+	for _, item := range ulist.Items {
+		// Age
+		age := "Unknown"
+		if !item.GetCreationTimestamp().Time.IsZero() {
+			hours := int(time.Since(item.GetCreationTimestamp().Time).Hours())
+			age = fmt.Sprintf("%dh", hours)
+		}
+		ri := ResourceInfo{
+			Name:      item.GetName(),
+			Ready:     "<none>",
+			Status:    "<none>",
+			Restarts:  "<none>",
+			Age:       age,
+			IP:        "<none>",
+			Node:      "<none>",
+			Namespace: item.GetNamespace(),
+			Type:      resource,
+		}
+		results = append(results, ri)
+	}
+
+	return results, nil
 }
 
 // GetPodsDetailed returns detailed pod information
@@ -308,7 +419,8 @@ func (k *KubeClient) GetResourceList(resourceType, namespace string) ([]Resource
 	case "deployments":
 		return k.GetDeploymentsDetailed(namespace)
 	default:
-		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
+		// Fallback to dynamic client for any other resource
+		return k.listGenericResources(resourceType, namespace)
 	}
 }
 
@@ -322,26 +434,8 @@ func (k *KubeClient) GetResourceListDetailed(resourceType, namespace string) ([]
 	case "deployments":
 		return k.GetDeploymentsDetailed(namespace)
 	default:
-		// For unsupported types, fall back to simple name list
-		names, err := k.GetResourceList(resourceType, namespace)
-		if err != nil {
-			return nil, err
-		}
-		var resources []ResourceInfo
-		for _, name := range names {
-			resources = append(resources, ResourceInfo{
-				Name:      name.Name,
-				Ready:     "<none>",
-				Status:    "<none>",
-				Restarts:  "<none>",
-				Age:       "<none>",
-				IP:        "<none>",
-				Node:      "<none>",
-				Namespace: namespace,
-				Type:      resourceType,
-			})
-		}
-		return resources, nil
+		// Use dynamic client detailed listing for any other resource
+		return k.listGenericResources(resourceType, namespace)
 	}
 }
 

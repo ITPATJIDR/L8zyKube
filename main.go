@@ -42,6 +42,7 @@ func initialModel() MainModel {
 	if kubeClient != nil {
 		if apiResources, err := kubeClient.GetAPIResources(); err != nil {
 			fmt.Printf("Error fetching API resources: %v\n", err)
+			showModal = true
 		} else {
 			if arw, ok := widgets[1].(interface{ SetApiResourceList([]string) }); ok {
 				arw.SetApiResourceList(apiResources)
@@ -52,7 +53,7 @@ func initialModel() MainModel {
 	modal := components.NewModal()
 	logsModal := components.NewLogsModal()
 	if showModal {
-		modal.ShowError("Kubernetes Connection Failed", "Could not connect to Kubernetes cluster.\nPlease check your kubeconfig and cluster status.", "Q")
+		modal.ShowError("Kubernetes Connection Failed", "Could not connect to Kubernetes cluster.\nPlease check your kubeconfig and cluster status.\nMake sure minikube is running: minikube start", "Q")
 	}
 
 	return MainModel{
@@ -82,12 +83,12 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.showModal {
 				m.modal.Hide()
 				m.showModal = false
-				return m, nil
+				return m, tea.Quit
 			}
 			if m.showLogsModal {
 				m.logsModal.Hide()
 				m.showLogsModal = false
-				return m, nil
+				return m, tea.Quit
 			}
 			return m, tea.Quit
 
@@ -119,6 +120,12 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.focusedWidget = 0
 					return m, nil
 				}
+			}
+			// Route Escape key to the focused widget for other cases
+			if m.focusedWidget < len(m.widgets) {
+				var cmd tea.Cmd
+				m.widgets[m.focusedWidget], cmd = m.widgets[m.focusedWidget].Update(msg)
+				return m, cmd
 			}
 
 		case "ctrl+l":
@@ -368,10 +375,8 @@ func (m MainModel) View() string {
 		return overlay
 	}
 
-	// If modal is showing, overlay it on top
 	if m.showModal {
 		modalContent := m.modal.Render()
-		// Center the modal on screen
 		modalStyle := lipgloss.NewStyle().
 			Width(m.width).
 			Height(m.height).
@@ -381,7 +386,69 @@ func (m MainModel) View() string {
 		return overlay
 	}
 
-	return horizontal
+	// Append dynamic footer with keybindings
+	footer := m.renderFooter()
+	bodyWithFooter := lipgloss.JoinVertical(lipgloss.Left, horizontal, footer)
+	return bodyWithFooter
+}
+
+// renderFooter builds a dynamic footer string showing current keybindings
+// based on the active UI state and focused widget.
+func (m MainModel) renderFooter() string {
+	// Base style for footer
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Background(lipgloss.Color("236")).
+		Padding(0, 1).
+		Width(m.width)
+
+	// Determine current context
+	var hints []string
+
+	if m.showModal {
+		hints = append(hints, "esc: close modal", "q: quit")
+		return style.Render(strings.Join(hints, "  |  "))
+	}
+
+	if m.showLogsModal {
+		hints = append(hints,
+			"up/down, j/k: scroll",
+			"pgup/pgdown: page",
+			"g/G, home/end: jump",
+			"esc: close",
+			"q: quit",
+		)
+		return style.Render(strings.Join(hints, "  |  "))
+	}
+
+	// Focus-specific hints
+	switch m.focusedWidget {
+	case 0: // Namespace widget
+		hints = append(hints, "j/k: move focus", "enter: choose namespace", "q: quit")
+	case 1: // API resource widget
+		if arw, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok && arw.IsListActive() {
+			hints = append(hints, "j/k: move", "enter: select", "esc: back", "q: quit")
+		} else {
+			hints = append(hints, "j/k: move focus", "enter: open resources", "q: quit")
+		}
+	case 2: // Main content widget
+		if mcw, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
+			if mcw.SelectionNameSpace {
+				hints = append(hints, "j/k: move", "enter: select namespace", "esc: cancel", "q: quit")
+			} else if mcw.IsResourcesActive() {
+				hints = append(hints, "j/k, up/down: scroll", "pgup/pgdown: page", "g/G: jump", "esc: exit", "q: quit")
+				if sel := mcw.GetSelectedResource(); sel != nil && sel.Type == "Pod" {
+					hints = append(hints, "ctrl+l: view logs")
+				}
+			} else {
+				hints = append(hints, "enter: activate list", "j/k: move focus", "q: quit")
+			}
+		}
+	default:
+		hints = append(hints, "j/k: move focus", "q: quit")
+	}
+
+	return style.Render(strings.Join(hints, "  |  "))
 }
 
 func main() {
