@@ -200,17 +200,14 @@ func (a *ApiResourceWidget) IsListActive() bool {
 }
 
 func (a *ApiResourceWidget) innerHeight() int {
-	// Border adds 2 rows, padding adds 2 rows as configured
 	h := a.height
 	if h <= 0 {
 		h = 32
 	}
-	// We used Padding(1,2) so subtract padding rows
 	return maxInt(h-2, 1)
 }
 
 func (a *ApiResourceWidget) innerContentWidth() int {
-	// Account for horizontal padding (2+2). Border width is handled by lipgloss width setting.
 	w := a.width
 	if w <= 0 {
 		w = 30
@@ -219,8 +216,6 @@ func (a *ApiResourceWidget) innerContentWidth() int {
 }
 
 func (a *ApiResourceWidget) pageSize() int {
-	// Two lines per item (title + desc) plus one title line
-	// We aim to move about half a screen of items
 	h := a.innerHeight() - 1
 	if h < 2 {
 		return 1
@@ -239,15 +234,13 @@ func (a *ApiResourceWidget) ensureSelectionVisible() {
 		return
 	}
 
-	// Compute how many list rows are available for items (excluding title)
 	h := a.innerHeight() - 1
 	if h < 2 {
 		h = 2
 	}
-	// Each item consumes 2 rows
+
 	visibleItemCount := maxInt(h/2, 1)
 
-	// Clamp selectedIndex
 	if a.selectedIndex < 0 {
 		a.selectedIndex = 0
 	}
@@ -255,7 +248,6 @@ func (a *ApiResourceWidget) ensureSelectionVisible() {
 		a.selectedIndex = len(a.ApiResourceList) - 1
 	}
 
-	// Ensure scrollOffset is such that selectedIndex is visible
 	if a.selectedIndex < a.scrollOffset {
 		a.scrollOffset = a.selectedIndex
 	}
@@ -265,7 +257,6 @@ func (a *ApiResourceWidget) ensureSelectionVisible() {
 		a.scrollOffset = a.selectedIndex - visibleItemCount + 1
 	}
 
-	// Clamp scrollOffset
 	maxOffset := maxInt(len(a.ApiResourceList)-visibleItemCount, 0)
 	if a.scrollOffset > maxOffset {
 		a.scrollOffset = maxOffset
@@ -276,9 +267,7 @@ func (a *ApiResourceWidget) ensureSelectionVisible() {
 }
 
 func (a *ApiResourceWidget) visibleItems(visibleRows int) []int {
-	// visibleRows includes title row; actual rows for items:
 	rowsForItems := maxInt(visibleRows-1, 1)
-	// two rows per item
 	itemSlots := maxInt(rowsForItems/2, 1)
 	start := a.scrollOffset
 	end := start + itemSlots

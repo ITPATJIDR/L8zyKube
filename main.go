@@ -386,23 +386,18 @@ func (m MainModel) View() string {
 		return overlay
 	}
 
-	// Append dynamic footer with keybindings
 	footer := m.renderFooter()
 	bodyWithFooter := lipgloss.JoinVertical(lipgloss.Left, horizontal, footer)
 	return bodyWithFooter
 }
 
-// renderFooter builds a dynamic footer string showing current keybindings
-// based on the active UI state and focused widget.
 func (m MainModel) renderFooter() string {
-	// Base style for footer
 	style := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Background(lipgloss.Color("236")).
 		Padding(0, 1).
 		Width(m.width)
 
-	// Determine current context
 	var hints []string
 
 	if m.showModal {
@@ -421,17 +416,16 @@ func (m MainModel) renderFooter() string {
 		return style.Render(strings.Join(hints, "  |  "))
 	}
 
-	// Focus-specific hints
 	switch m.focusedWidget {
-	case 0: // Namespace widget
+	case 0:
 		hints = append(hints, "j/k: move focus", "enter: choose namespace", "q: quit")
-	case 1: // API resource widget
+	case 1:
 		if arw, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok && arw.IsListActive() {
 			hints = append(hints, "j/k: move", "enter: select", "esc: back", "q: quit")
 		} else {
 			hints = append(hints, "j/k: move focus", "enter: open resources", "q: quit")
 		}
-	case 2: // Main content widget
+	case 2:
 		if mcw, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 			if mcw.SelectionNameSpace {
 				hints = append(hints, "j/k: move", "enter: select namespace", "esc: cancel", "q: quit")
