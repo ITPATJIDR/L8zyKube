@@ -1,6 +1,13 @@
 # TODO
-- add Watch action
+- Watch resource 
+- Create resource 
+- Edit resource 
+- Error Optimization
+- Switch context
+- Monitor Kubernetes status and disk usage
+
 
 # CanDO
 - Select resource filter by namespace
-- view logs
+- View logs resource
+- Describe resource 

@@ -53,7 +53,7 @@ func initialModel() MainModel {
 	modal := components.NewModal()
 	logsModal := components.NewLogsModal()
 	if showModal {
-		modal.ShowError("Kubernetes Connection Failed", "Could not connect to Kubernetes cluster.\nPlease check your kubeconfig and cluster status.\nMake sure minikube is running: minikube start", "Q")
+		modal.ShowError("Kubernetes Connection Failed", "Could not connect to Kubernetes cluster.\nPlease check your kubeconfig and cluster status.\nMake sure minikube is running: minikube start", "Ctrl+Q")
 	}
 
 	return MainModel{
@@ -79,7 +79,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q", "Q":
+		case "ctrl+q":
 			if m.showModal {
 				m.modal.Hide()
 				m.showModal = false
@@ -128,34 +128,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 
-		case "ctrl+l":
-			if m.kubeClient != nil {
-				if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
-					selected := mainContentWidget.GetSelectedResource()
-					if selected != nil && selected.Type == "Pod" {
-						logs, err := m.kubeClient.GetPodLogs(selected.Namespace, selected.Name, 1000)
-						if err != nil {
-							m.modal.ShowError("Logs Error", fmt.Sprintf("Failed to get logs:\n%v", err), "Close")
-							m.showModal = true
-						} else {
-							logLineCount := len(strings.Split(logs, "\n"))
-							m.logsModal.Show(fmt.Sprintf("Pod Logs: %s (namespace: %s) - %d lines", selected.Name, selected.Namespace, logLineCount), logs)
-							m.logsModal.SetDimensions(m.width, m.height)
-							m.showLogsModal = true
-						}
-						return m, nil
-					} else {
-						m.modal.ShowError("No Pod Selected", "Please select a pod to view logs", "Close")
-						m.showModal = true
-						return m, nil
-					}
-				}
-			} else {
-				m.modal.ShowError("No Connection", "Not connected to Kubernetes cluster", "Close")
-				m.showModal = true
-				return m, nil
-			}
-			return m, nil
+		// ctrl+l and ctrl+d handled by MainContentWidget; see custom messages
 
 		case "up":
 			if m.showLogsModal {
@@ -341,6 +314,59 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Handle custom messages emitted by widgets
+	switch msg := msg.(type) {
+	case widgets.ShowLogsRequest:
+		if m.kubeClient == nil {
+			m.modal.ShowError("No Connection", "Not connected to Kubernetes cluster", "Close")
+			m.showModal = true
+			return m, nil
+		}
+		if strings.EqualFold(msg.Resource.Type, "Pod") || strings.EqualFold(msg.Resource.Type, "Pods") {
+			logs, err := m.kubeClient.GetPodLogs(msg.Resource.Namespace, msg.Resource.Name, 1000)
+			if err != nil {
+				m.modal.ShowError("Logs Error", fmt.Sprintf("Failed to get logs:\n%v", err), "Close")
+				m.showModal = true
+				return m, nil
+			}
+			logLineCount := len(strings.Split(logs, "\n"))
+			m.logsModal.Show(fmt.Sprintf("Pod Logs: %s (namespace: %s) - %d lines", msg.Resource.Name, msg.Resource.Namespace, logLineCount), logs)
+			m.logsModal.SetDimensions(m.width, m.height)
+			m.showLogsModal = true
+			return m, nil
+		}
+		m.modal.ShowError("No Pod Selected", "Please select a pod to view logs", "Close")
+		m.showModal = true
+		return m, nil
+
+	case widgets.ShowDescribeRequest:
+		if m.kubeClient == nil {
+			m.modal.ShowError("No Connection", "Not connected to Kubernetes cluster", "Close")
+			m.showModal = true
+			return m, nil
+		}
+		rt := strings.ToLower(msg.Resource.Type)
+		switch rt {
+		case "pod":
+			rt = "pods"
+		case "service":
+			rt = "services"
+		case "deployment":
+			rt = "deployments"
+		}
+		desc, err := m.kubeClient.DescribeResource(rt, msg.Resource.Namespace, msg.Resource.Name)
+		if err != nil {
+			m.modal.ShowError("Describe Error", fmt.Sprintf("Failed to describe resource:\n%v", err), "Close")
+			m.showModal = true
+			return m, nil
+		}
+		title := fmt.Sprintf("Describe: %s/%s (namespace: %s)", rt, msg.Resource.Name, msg.Resource.Namespace)
+		m.logsModal.Show(title, desc)
+		m.logsModal.SetDimensions(m.width, m.height)
+		m.showLogsModal = true
+		return m, nil
+	}
+
 	return m, nil
 }
 
@@ -430,9 +456,10 @@ func (m MainModel) renderFooter() string {
 			if mcw.SelectionNameSpace {
 				hints = append(hints, "j/k: move", "enter: select namespace", "esc: cancel", "q: quit")
 			} else if mcw.IsResourcesActive() {
-				hints = append(hints, "j/k, up/down: scroll", "pgup/pgdown: page", "g/G: jump", "esc: exit", "q: quit")
+				hints = append(hints, "j/k, up/down: scroll", "esc: exit", "q: quit")
 				if sel := mcw.GetSelectedResource(); sel != nil && sel.Type == "Pod" {
 					hints = append(hints, "ctrl+l: view logs")
+					hints = append(hints, "ctrl+d: describe resource")
 				}
 			} else {
 				hints = append(hints, "enter: activate list", "j/k: move focus", "q: quit")

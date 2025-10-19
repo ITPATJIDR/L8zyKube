@@ -1,7 +1,6 @@
 package widgets
 
 import (
-	"fmt"
 	"l8zykube/components"
 	kubetypes "l8zykube/kubernetes"
 
@@ -15,6 +14,15 @@ type MainContentWidget struct {
 	namespaceSelector  *components.NamespaceSelector
 	resourceTable      *components.ResourceTable
 	welcomeScreen      *components.WelcomeScreen
+}
+
+// Messages emitted by MainContentWidget for actions that the root model handles
+type ShowLogsRequest struct {
+	Resource kubetypes.ResourceInfo
+}
+
+type ShowDescribeRequest struct {
+	Resource kubetypes.ResourceInfo
 }
 
 func NewMainContentWidget() *MainContentWidget {
@@ -70,9 +78,16 @@ func (m *MainContentWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 			case "end", "G":
 				m.resourceTable.ScrollToBottom()
 			case "ctrl+l":
-				fmt.Println("ctrl+l")
-				fmt.Println(m.GetSelectedResource().Name)
-				fmt.Println(m.GetSelectedResource().Namespace)
+				if sel := m.GetSelectedResource(); sel != nil {
+					res := *sel
+					return m, func() tea.Msg { return ShowLogsRequest{Resource: res} }
+				}
+				return m, nil
+			case "ctrl+d":
+				if sel := m.GetSelectedResource(); sel != nil {
+					res := *sel
+					return m, func() tea.Msg { return ShowDescribeRequest{Resource: res} }
+				}
 				return m, nil
 			}
 		}

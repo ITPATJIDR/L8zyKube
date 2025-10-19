@@ -36,7 +36,8 @@ func (lm *LogsModal) Show(title, logs string) {
 	lm.Visible = true
 	lm.scrollPos = 0
 
-	lm.ScrollToBottom()
+	// Scroll to bottom of the logs
+	// lm.ScrollToBottom()
 }
 
 func (lm *LogsModal) Hide() {

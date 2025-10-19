@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"sigs.k8s.io/yaml"
 )
 
 // ResourceInfo holds detailed information about a Kubernetes resource
@@ -474,4 +475,39 @@ func (k *KubeClient) GetPodLogs(namespace, podName string, tailLines int64) (str
 	}
 
 	return string(buf), nil
+}
+
+// DescribeResource fetches a resource by type/name/namespace and returns a YAML representation
+// similar to `kubectl get <resource> <name> -n <ns> -o yaml`.
+// This provides a compact, readable description suitable for display in a modal.
+func (k *KubeClient) DescribeResource(resourceType, namespace, name string) (string, error) {
+	if strings.TrimSpace(resourceType) == "" || strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("resourceType and name are required")
+	}
+
+	gvr, namespaced, err := k.resolveResourceGVR(resourceType)
+	if err != nil {
+		return "", err
+	}
+
+	var obj *unstructured.Unstructured
+	if namespaced {
+		if strings.TrimSpace(namespace) == "" {
+			namespace = "default"
+		}
+		obj, err = k.dynamic.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	} else {
+		obj, err = k.dynamic.Resource(gvr).Get(context.TODO(), name, metav1.GetOptions{})
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s/%s: %v", resourceType, name, err)
+	}
+
+	// Marshal the unstructured object to YAML for a readable description
+	y, err := yaml.Marshal(obj.Object)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal resource to YAML: %v")
+	}
+
+	return string(y), nil
 }
