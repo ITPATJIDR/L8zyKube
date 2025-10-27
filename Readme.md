@@ -2,7 +2,12 @@
 
 <img src="./assets/L8zyKube.png"/>
 
-# TODO
+## Install 
+```
+wget https://github.com/ITPATJIDR/L8zyKube/releases/download/v0.0.1/l8zykube
+```
+
+### TODO
 - Watch resource 
 - Delete resource
 - Create resource 
@@ -13,7 +18,7 @@
 - Monitor Kubernetes status and disk usage
 
 
-# CanDO
+### CanDO
 - Select resource filter by namespace
 - View logs resource
 - Describe resource 
