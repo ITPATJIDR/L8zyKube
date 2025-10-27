@@ -47,7 +47,7 @@ func (ws *WelcomeScreen) Render() string {
 		Align(lipgloss.Center).
 		Width(ws.Width-4).
 		Margin(1, 0, 0, 0).
-		Render("Press Enter in NameSpace widget to select a namespace")
+		Render("Press Enter in NameSpace widget to select a namespace\nPress j/k to move focus\nEnjoy Monitoring Kubernetes Resources!")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Center,

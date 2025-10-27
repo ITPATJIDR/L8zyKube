@@ -13,6 +13,7 @@ type ResourceTable struct {
 	ScrollOffset  int
 	SelectedIndex int
 	Active        bool
+	Watching      bool
 	Width         int
 	Height        int
 }
@@ -33,8 +34,45 @@ func (rt *ResourceTable) SetResources(title string, resources []kubetypes.Resour
 	rt.Active = false
 }
 
+// UpdateResourcesOnly updates only the resources without resetting state (for watch mode)
+func (rt *ResourceTable) UpdateResourcesOnly(title string, resources []kubetypes.ResourceInfo) {
+	rt.Title = title
+	rt.Resources = resources
+
+	// Clamp selected index if needed
+	if rt.SelectedIndex >= len(rt.Resources) {
+		rt.SelectedIndex = maxInt(len(rt.Resources)-1, 0)
+	}
+
+	// Adjust scroll offset if needed
+	innerHeight := rt.Height
+	if innerHeight <= 0 {
+		innerHeight = 37
+	}
+	availableRows := innerHeight - 2
+	if availableRows < 2 {
+		availableRows = 2
+	}
+	rowsForItems := availableRows - 1
+	if rowsForItems < 1 {
+		rowsForItems = 1
+	}
+
+	maxOff := maxInt(len(rt.Resources)-rowsForItems, 0)
+	if rt.ScrollOffset > maxOff {
+		rt.ScrollOffset = maxOff
+	}
+	if rt.ScrollOffset < 0 {
+		rt.ScrollOffset = 0
+	}
+}
+
 func (rt *ResourceTable) SetActive(active bool) {
 	rt.Active = active
+}
+
+func (rt *ResourceTable) SetWatching(watching bool) {
+	rt.Watching = watching
 }
 
 func (rt *ResourceTable) GetSelectedResource() *kubetypes.ResourceInfo {
@@ -179,11 +217,15 @@ func (rt *ResourceTable) Render() string {
 	}
 
 	// Title
+	titlePrefix := "Resources"
+	if rt.Watching {
+		titlePrefix = "Watch Resources"
+	}
 	title := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("205")).
 		Bold(true).
 		MarginLeft(2).
-		Render(fmt.Sprintf("Resources: %s (%d)", rt.Title, len(rt.Resources)))
+		Render(fmt.Sprintf("%s: %s (%d)", titlePrefix, rt.Title, len(rt.Resources)))
 
 	contentWidth := rt.Width - 4
 	if contentWidth < 20 {

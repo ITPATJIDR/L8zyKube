@@ -16,13 +16,17 @@ type MainContentWidget struct {
 	welcomeScreen      *components.WelcomeScreen
 }
 
-// Messages emitted by MainContentWidget for actions that the root model handles
 type ShowLogsRequest struct {
 	Resource kubetypes.ResourceInfo
 }
 
 type ShowDescribeRequest struct {
 	Resource kubetypes.ResourceInfo
+}
+
+type ToggleWatchRequest struct {
+	ResourceType string
+	Namespace    string
 }
 
 func NewMainContentWidget() *MainContentWidget {
@@ -89,6 +93,12 @@ func (m *MainContentWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 					return m, func() tea.Msg { return ShowDescribeRequest{Resource: res} }
 				}
 				return m, nil
+			case "ctrl+w":
+				if sel := m.GetSelectedResource(); sel != nil {
+					res := *sel
+					return m, func() tea.Msg { return ToggleWatchRequest{ResourceType: res.Type, Namespace: res.Namespace} }
+				}
+				return m, nil
 			}
 		}
 	}
@@ -152,6 +162,15 @@ func (m *MainContentWidget) View() string {
 
 func (m *MainContentWidget) SetResourcesDetailed(title string, resources []kubetypes.ResourceInfo) {
 	m.resourceTable.SetResources(title, resources)
+}
+
+// UpdateResourcesOnly updates only the resources without resetting state (for watch mode)
+func (m *MainContentWidget) UpdateResourcesOnly(title string, resources []kubetypes.ResourceInfo) {
+	m.resourceTable.UpdateResourcesOnly(title, resources)
+}
+
+func (m *MainContentWidget) SetWatching(watching bool) {
+	m.resourceTable.SetWatching(watching)
 }
 
 func (m *MainContentWidget) IsResourcesActive() bool {

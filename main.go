@@ -6,21 +6,25 @@ import (
 	"l8zykube/kubernetes"
 	widgets "l8zykube/widgets"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type MainModel struct {
-	widgets       []widgets.Widget
-	focusedWidget int
-	width         int
-	height        int
-	kubeClient    *kubernetes.KubeClient
-	modal         *components.Modal
-	logsModal     *components.LogsModal
-	showModal     bool
-	showLogsModal bool
+	widgets        []widgets.Widget
+	focusedWidget  int
+	width          int
+	height         int
+	kubeClient     *kubernetes.KubeClient
+	modal          *components.Modal
+	logsModal      *components.LogsModal
+	showModal      bool
+	showLogsModal  bool
+	watching       bool
+	watchResource  string
+	watchNamespace string
 }
 
 func initialModel() MainModel {
@@ -69,6 +73,28 @@ func initialModel() MainModel {
 
 func (m MainModel) Init() tea.Cmd {
 	return nil
+}
+
+// WatchTick is emitted every second while watch is active
+type WatchTick struct{}
+
+// watchTickCmd schedules the next tick
+func watchTickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(_ time.Time) tea.Msg { return WatchTick{} })
+}
+
+// normalizeResourceTypeForFetch converts singular/capitalized types to canonical names
+func normalizeResourceTypeForFetch(rt string) string {
+	r := strings.ToLower(strings.TrimSpace(rt))
+	switch r {
+	case "pod":
+		return "pods"
+	case "service":
+		return "services"
+	case "deployment":
+		return "deployments"
+	}
+	return r
 }
 
 func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -339,6 +365,61 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showModal = true
 		return m, nil
 
+	case widgets.ToggleWatchRequest:
+		if m.kubeClient == nil {
+			m.modal.ShowError("No Connection", "Not connected to Kubernetes cluster", "Close")
+			m.showModal = true
+			return m, nil
+		}
+		// Normalize resource type for fetching
+		rt := normalizeResourceTypeForFetch(msg.ResourceType)
+		ns := msg.Namespace
+		if ns == "" {
+			// Fallback to currently selected namespace if available
+			if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
+				ns = namespaceWidget.GetSelectedNameSpace()
+			}
+			if ns == "" {
+				ns = "default"
+			}
+		}
+
+		// Toggle behavior: if same watch target, stop; otherwise start new watch
+		if m.watching && m.watchResource == rt && m.watchNamespace == ns {
+			m.watching = false
+			// Clear watching flag in the resource table
+			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
+				mainContent.SetWatching(false)
+			}
+			return m, nil
+		}
+
+		m.watching = true
+		m.watchResource = rt
+		m.watchNamespace = ns
+
+		// Do an immediate refresh and then schedule ticks
+		if resources, err := m.kubeClient.GetResourceListDetailed(rt, ns); err == nil {
+			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
+				// Preserve Active/scroll state when starting watch
+				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", rt, ns), resources)
+				mainContent.SetWatching(true)
+			}
+		}
+		return m, watchTickCmd()
+
+	case WatchTick:
+		if !m.watching || m.kubeClient == nil {
+			return m, nil
+		}
+		// Periodic refresh - use UpdateResourcesOnly to preserve Active state and scroll position
+		if resources, err := m.kubeClient.GetResourceListDetailed(m.watchResource, m.watchNamespace); err == nil {
+			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
+				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", m.watchResource, m.watchNamespace), resources)
+			}
+		}
+		return m, watchTickCmd()
+
 	case widgets.ShowDescribeRequest:
 		if m.kubeClient == nil {
 			m.modal.ShowError("No Connection", "Not connected to Kubernetes cluster", "Close")
@@ -447,7 +528,7 @@ func (m MainModel) renderFooter() string {
 		hints = append(hints, "j/k: move focus", "enter: choose namespace", "q: quit")
 	case 1:
 		if arw, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok && arw.IsListActive() {
-			hints = append(hints, "j/k: move", "enter: select", "esc: back", "q: quit")
+			hints = append(hints, "j/k: move", "enter: select", "esc: back", "/: search", "q: quit")
 		} else {
 			hints = append(hints, "j/k: move focus", "enter: open resources", "q: quit")
 		}
@@ -456,7 +537,8 @@ func (m MainModel) renderFooter() string {
 			if mcw.SelectionNameSpace {
 				hints = append(hints, "j/k: move", "enter: select namespace", "esc: cancel", "q: quit")
 			} else if mcw.IsResourcesActive() {
-				hints = append(hints, "j/k, up/down: scroll", "esc: exit", "q: quit")
+				hints = append(hints, "j/k, up/down: scroll", "esc: exit")
+				hints = append(hints, "ctrl+w: toggle watch")
 				if sel := mcw.GetSelectedResource(); sel != nil && sel.Type == "Pod" {
 					hints = append(hints, "ctrl+l: view logs")
 					hints = append(hints, "ctrl+d: describe resource")

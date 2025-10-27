@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -16,10 +17,13 @@ type ApiResourceWidget struct {
 	SelectedNameSpace   string
 	SelectionNameSpace  bool
 	ApiResourceList     []string
+	filteredList        []string
 	selectedApiResource string
 	selectedIndex       int
 	scrollOffset        int
 	listActive          bool
+	searchActive        bool
+	searchQuery         string
 }
 
 func NewApiResourceWidget() *ApiResourceWidget {
@@ -31,6 +35,7 @@ func NewApiResourceWidget() *ApiResourceWidget {
 		scrollOffset:    0,
 		ApiResourceList: []string{},
 		listActive:      false,
+		searchActive:    false,
 	}
 }
 
@@ -46,8 +51,8 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 		case "enter":
 			if !a.listActive {
 				a.listActive = true
-			} else if len(a.ApiResourceList) > 0 && a.selectedIndex >= 0 && a.selectedIndex < len(a.ApiResourceList) {
-				a.selectedApiResource = a.ApiResourceList[a.selectedIndex]
+			} else if len(a.filteredList) > 0 && a.selectedIndex >= 0 && a.selectedIndex < len(a.filteredList) {
+				a.selectedApiResource = a.filteredList[a.selectedIndex]
 			}
 		case tea.KeyEscape.String():
 			a.listActive = false
@@ -60,14 +65,48 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 					a.selectedIndex--
 				}
 			case "down", "j":
-				if a.selectedIndex < len(a.ApiResourceList)-1 {
+				if a.selectedIndex < len(a.filteredList)-1 {
 					a.selectedIndex++
 				}
 			case "home", "g":
 				a.selectedIndex = 0
 			case "end", "G":
-				if len(a.ApiResourceList) > 0 {
-					a.selectedIndex = len(a.ApiResourceList) - 1
+				if len(a.filteredList) > 0 {
+					a.selectedIndex = len(a.filteredList) - 1
+				}
+			case "/":
+				a.searchActive = true
+				a.selectedIndex = 0
+			}
+		}
+
+		if a.searchActive {
+			switch key {
+			case "esc":
+				a.searchActive = false
+				a.searchQuery = ""
+				a.updateFilteredList()
+			case "backspace":
+				if len(a.searchQuery) > 0 {
+					a.searchQuery = a.searchQuery[:len(a.searchQuery)-1]
+					a.updateFilteredList()
+				}
+			case "up", "k":
+				if a.selectedIndex > 0 {
+					// Purpose: for increase selected index by 1 cause duplicate key
+					a.selectedIndex += 1
+					a.selectedIndex--
+				}
+			case "down", "j":
+				if a.selectedIndex < len(a.filteredList)-1 {
+					// Purpose: for decrease selected index by 1 cause duplicate key
+					a.selectedIndex -= 1
+					a.selectedIndex++
+				}
+			default:
+				if m.Type == tea.KeyRunes {
+					a.searchQuery += m.String()
+					a.updateFilteredList()
 				}
 			}
 		}
@@ -80,18 +119,40 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 
 func (a *ApiResourceWidget) SetApiResourceList(resources []string) {
 	a.ApiResourceList = resources
-	if a.selectedIndex >= len(a.ApiResourceList) {
-		a.selectedIndex = maxInt(len(a.ApiResourceList)-1, 0)
+	a.updateFilteredList()
+	if a.selectedIndex >= len(a.filteredList) {
+		a.selectedIndex = maxInt(len(a.filteredList)-1, 0)
+	}
+	a.ensureSelectionVisible()
+}
+
+// updateFilteredList filters the API resource list based on the search query
+func (a *ApiResourceWidget) updateFilteredList() {
+	if a.searchQuery == "" {
+		a.filteredList = a.ApiResourceList
+	} else {
+		query := strings.ToLower(a.searchQuery)
+		a.filteredList = []string{}
+		for _, resource := range a.ApiResourceList {
+			if strings.Contains(strings.ToLower(resource), query) {
+				a.filteredList = append(a.filteredList, resource)
+			}
+		}
+	}
+
+	// Reset selected index if it's out of bounds
+	if a.selectedIndex >= len(a.filteredList) {
+		a.selectedIndex = maxInt(len(a.filteredList)-1, 0)
 	}
 	a.ensureSelectionVisible()
 }
 
 func (a *ApiResourceWidget) GetSelectedApiResource() string {
-	if len(a.ApiResourceList) == 0 {
+	if len(a.filteredList) == 0 {
 		return a.selectedApiResource
 	}
-	if a.selectedIndex >= 0 && a.selectedIndex < len(a.ApiResourceList) {
-		return a.ApiResourceList[a.selectedIndex]
+	if a.selectedIndex >= 0 && a.selectedIndex < len(a.filteredList) {
+		return a.filteredList[a.selectedIndex]
 	}
 	return a.selectedApiResource
 }
@@ -140,7 +201,20 @@ func (a *ApiResourceWidget) View() string {
 			MarginLeft(2).
 			Render("API Resources")
 
+		// Add search bar if search is active
+		searchBar := ""
+		if a.searchActive {
+			searchBar = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("214")).
+				Bold(true).
+				MarginLeft(2).
+				Render(fmt.Sprintf("Search: %s_", a.searchQuery))
+		}
+
 		listHeight := a.innerHeight() - 1
+		if a.searchActive {
+			listHeight -= 1 // Reserve space for search bar
+		}
 		if listHeight < 1 {
 			listHeight = 1
 		}
@@ -167,8 +241,11 @@ func (a *ApiResourceWidget) View() string {
 
 		lines := make([]string, 0, len(visibleItems)*2+1)
 		lines = append(lines, title)
+		if a.searchActive && searchBar != "" {
+			lines = append(lines, searchBar)
+		}
 		for _, idx := range visibleItems {
-			name := a.ApiResourceList[idx]
+			name := a.filteredList[idx]
 			nameLine := truncateWithEllipsis(name, textWidth)
 			descText := fmt.Sprintf("Resource: %s", name)
 			descLine := truncateWithEllipsis(descText, textWidth)
@@ -228,13 +305,16 @@ func (a *ApiResourceWidget) pageSize() int {
 }
 
 func (a *ApiResourceWidget) ensureSelectionVisible() {
-	if len(a.ApiResourceList) == 0 {
+	if len(a.filteredList) == 0 {
 		a.scrollOffset = 0
 		a.selectedIndex = 0
 		return
 	}
 
 	h := a.innerHeight() - 1
+	if a.searchActive {
+		h -= 1 // Reserve space for search bar
+	}
 	if h < 2 {
 		h = 2
 	}
@@ -244,8 +324,8 @@ func (a *ApiResourceWidget) ensureSelectionVisible() {
 	if a.selectedIndex < 0 {
 		a.selectedIndex = 0
 	}
-	if a.selectedIndex > len(a.ApiResourceList)-1 {
-		a.selectedIndex = len(a.ApiResourceList) - 1
+	if a.selectedIndex > len(a.filteredList)-1 {
+		a.selectedIndex = len(a.filteredList) - 1
 	}
 
 	if a.selectedIndex < a.scrollOffset {
@@ -257,7 +337,7 @@ func (a *ApiResourceWidget) ensureSelectionVisible() {
 		a.scrollOffset = a.selectedIndex - visibleItemCount + 1
 	}
 
-	maxOffset := maxInt(len(a.ApiResourceList)-visibleItemCount, 0)
+	maxOffset := maxInt(len(a.filteredList)-visibleItemCount, 0)
 	if a.scrollOffset > maxOffset {
 		a.scrollOffset = maxOffset
 	}
@@ -271,8 +351,8 @@ func (a *ApiResourceWidget) visibleItems(visibleRows int) []int {
 	itemSlots := maxInt(rowsForItems/2, 1)
 	start := a.scrollOffset
 	end := start + itemSlots
-	if end > len(a.ApiResourceList) {
-		end = len(a.ApiResourceList)
+	if end > len(a.filteredList) {
+		end = len(a.filteredList)
 	}
 	idxs := make([]int, 0, maxInt(end-start, 0))
 	for i := start; i < end; i++ {
