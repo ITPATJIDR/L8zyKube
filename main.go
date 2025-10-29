@@ -5,6 +5,8 @@ import (
 	"l8zykube/components"
 	"l8zykube/kubernetes"
 	widgets "l8zykube/widgets"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -13,21 +15,28 @@ import (
 )
 
 type MainModel struct {
-	widgets        []widgets.Widget
-	focusedWidget  int
-	width          int
-	height         int
-	kubeClient     *kubernetes.KubeClient
-	modal          *components.Modal
-	logsModal      *components.LogsModal
-	showModal      bool
-	showLogsModal  bool
-	watching       bool
-	watchResource  string
-	watchNamespace string
+	widgets            []widgets.Widget
+	focusedWidget      int
+	width              int
+	height             int
+	kubeClient         *kubernetes.KubeClient
+	modal              *components.Modal
+	logsModal          *components.LogsModal
+	describeModal      *components.DescribeModal
+	showModal          bool
+	showLogsModal      bool
+	showDescribeModal  bool
+	watching           bool
+	watchResource      string
+	watchNamespace     string
+	runningKubectlEdit bool
 }
 
 type WatchTick struct{}
+
+type kubectlEditFinishedMsg struct {
+	err error
+}
 
 func initialModel() MainModel {
 	widgets := []widgets.Widget{
@@ -58,18 +67,21 @@ func initialModel() MainModel {
 
 	modal := components.NewModal()
 	logsModal := components.NewLogsModal()
+	describeModal := components.NewDescribeModal()
 	if showModal {
 		modal.ShowError("Kubernetes Connection Failed", "Could not connect to Kubernetes cluster.\nPlease check your kubeconfig and cluster status.\nMake sure minikube is running: minikube start", "Ctrl+Q")
 	}
 
 	return MainModel{
-		widgets:       widgets,
-		focusedWidget: 0,
-		kubeClient:    kubeClient,
-		modal:         modal,
-		logsModal:     logsModal,
-		showModal:     showModal,
-		showLogsModal: false,
+		widgets:           widgets,
+		focusedWidget:     0,
+		kubeClient:        kubeClient,
+		modal:             modal,
+		logsModal:         logsModal,
+		describeModal:     describeModal,
+		showModal:         showModal,
+		showLogsModal:     false,
+		showDescribeModal: false,
 	}
 }
 
@@ -94,6 +106,46 @@ func normalizeResourceTypeForFetch(rt string) string {
 	return r
 }
 
+func determineKubectlEditor() string {
+	checkVars := []string{"KUBE_EDITOR", "VISUAL", "EDITOR"}
+	for _, key := range checkVars {
+		if val := strings.TrimSpace(os.Getenv(key)); val != "" {
+			return val
+		}
+	}
+
+	candidates := []string{"vim", "nvim", "vi", "nano"}
+	for _, candidate := range candidates {
+		if path, err := exec.LookPath(candidate); err == nil {
+			return path
+		}
+	}
+
+	return ""
+}
+
+func applyEditorEnv(env []string, editor string) []string {
+	editor = strings.TrimSpace(editor)
+	if editor == "" {
+		return env
+	}
+	env = replaceOrAppendEnv(env, "KUBE_EDITOR", editor)
+	env = replaceOrAppendEnv(env, "EDITOR", editor)
+	return env
+}
+
+func replaceOrAppendEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	filtered := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, prefix) {
+			filtered = append(filtered, kv)
+		}
+	}
+	filtered = append(filtered, prefix+value)
+	return filtered
+}
+
 func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -106,6 +158,12 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.showModal {
 				m.modal.Hide()
 				m.showModal = false
+				return m, tea.Quit
+			}
+			if m.showDescribeModal {
+				m.describeModal.Hide()
+				m.showDescribeModal = false
+				m.runningKubectlEdit = false
 				return m, tea.Quit
 			}
 			if m.showLogsModal {
@@ -121,9 +179,18 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showModal = false
 				return m, nil
 			}
+			if m.showDescribeModal {
+				m.describeModal.Hide()
+				m.showDescribeModal = false
+				m.runningKubectlEdit = false
+				return m, nil
+			}
 			if m.showLogsModal {
 				m.logsModal.Hide()
 				m.showLogsModal = false
+				return m, nil
+			}
+			if m.runningKubectlEdit {
 				return m, nil
 			}
 			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
@@ -148,39 +215,109 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 
+		case "ctrl+e":
+			if m.showDescribeModal && !m.runningKubectlEdit {
+				if m.describeModal.Mode() == components.DescribeModeRead && m.describeModal.CanEdit() {
+					args := m.describeModal.EditCommandArgs()
+					if len(args) >= 2 {
+						m.describeModal.SetMode(components.DescribeModeWrite)
+						m.runningKubectlEdit = true
+						cmd := exec.Command(args[0], args[1:]...)
+						env := os.Environ()
+						editor := determineKubectlEditor()
+						env = applyEditorEnv(env, editor)
+						cmd.Env = env
+						cmd.Stdin = os.Stdin
+						cmd.Stdout = os.Stdout
+						cmd.Stderr = os.Stderr
+						return m, tea.Batch(
+							tea.ExitAltScreen,
+							tea.ExecProcess(cmd, func(err error) tea.Msg {
+								return kubectlEditFinishedMsg{err: err}
+							}),
+						)
+					}
+				}
+			}
+			if m.runningKubectlEdit {
+				return m, nil
+			}
+
 		case "up":
+			if m.showDescribeModal {
+				m.describeModal.ScrollUp()
+				return m, nil
+			}
 			if m.showLogsModal {
 				m.logsModal.ScrollUp()
 				return m, nil
 			}
+			if m.runningKubectlEdit {
+				return m, nil
+			}
 
 		case "down":
+			if m.showDescribeModal {
+				m.describeModal.ScrollDown()
+				return m, nil
+			}
 			if m.showLogsModal {
 				m.logsModal.ScrollDown()
 				return m, nil
 			}
+			if m.runningKubectlEdit {
+				return m, nil
+			}
 
 		case "pgup":
+			if m.showDescribeModal {
+				m.describeModal.PageUp()
+				return m, nil
+			}
 			if m.showLogsModal {
 				m.logsModal.PageUp()
 				return m, nil
 			}
+			if m.runningKubectlEdit {
+				return m, nil
+			}
 
 		case "pgdown":
+			if m.showDescribeModal {
+				m.describeModal.PageDown()
+				return m, nil
+			}
 			if m.showLogsModal {
 				m.logsModal.PageDown()
 				return m, nil
 			}
+			if m.runningKubectlEdit {
+				return m, nil
+			}
 
 		case "home", "g":
+			if m.showDescribeModal {
+				m.describeModal.ScrollToTop()
+				return m, nil
+			}
 			if m.showLogsModal {
 				m.logsModal.ScrollToTop()
 				return m, nil
 			}
+			if m.runningKubectlEdit {
+				return m, nil
+			}
 
 		case "end", "G":
+			if m.showDescribeModal {
+				m.describeModal.ScrollToBottom()
+				return m, nil
+			}
 			if m.showLogsModal {
 				m.logsModal.ScrollToBottom()
+				return m, nil
+			}
+			if m.runningKubectlEdit {
 				return m, nil
 			}
 
@@ -197,12 +334,23 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "j", "k":
+			if m.showDescribeModal {
+				if msg.String() == "j" {
+					m.describeModal.ScrollDown()
+				} else {
+					m.describeModal.ScrollUp()
+				}
+				return m, nil
+			}
 			if m.showLogsModal {
 				if msg.String() == "j" {
 					m.logsModal.ScrollDown()
 				} else {
 					m.logsModal.ScrollUp()
 				}
+				return m, nil
+			}
+			if m.runningKubectlEdit {
 				return m, nil
 			}
 
@@ -239,11 +387,14 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		default:
+			if m.showDescribeModal || m.runningKubectlEdit {
+				return m, nil
+			}
+
 			var cmd tea.Cmd
 
 			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
 				if m.focusedWidget == 1 && msg.String() == tea.KeyEnter.String() {
-					var cmd tea.Cmd
 					m.widgets[1], cmd = m.widgets[1].Update(msg)
 					if apiResourceWidget.IsListActive() {
 						selectedResource := apiResourceWidget.GetSelectedApiResource()
@@ -267,6 +418,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
 				if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 					if m.focusedWidget == 0 && msg.String() == tea.KeyEnter.String() {
+						m.widgets[0], cmd = m.widgets[0].Update(msg)
 						m.widgets[0].SetFocused(false)
 						m.widgets[2].SetFocused(true)
 						m.focusedWidget = 2
@@ -309,6 +461,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 					if m.focusedWidget == 2 && mainContentWidget.SelectionNameSpace && msg.String() == tea.KeyEscape.String() {
 						mainContentWidget.SetSelectionNameSpace(false)
+						m.widgets[2], cmd = m.widgets[2].Update(msg)
 						m.widgets[2].SetFocused(false)
 						m.widgets[0].SetFocused(true)
 						m.focusedWidget = 0
@@ -409,17 +562,59 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "deployment":
 			rt = "deployments"
 		}
-		desc, err := m.kubeClient.DescribeResource(rt, msg.Resource.Namespace, msg.Resource.Name)
+		namespace := strings.TrimSpace(msg.Resource.Namespace)
+		displayNamespace := namespace
+		if displayNamespace == "" {
+			displayNamespace = "default"
+		}
+		desc, err := m.kubeClient.DescribeResource(rt, namespace, msg.Resource.Name)
 		if err != nil {
 			m.modal.ShowError("Describe Error", fmt.Sprintf("Failed to describe resource:\n%v", err), "Close")
 			m.showModal = true
 			return m, nil
 		}
-		title := fmt.Sprintf("Describe: %s/%s (namespace: %s)", rt, msg.Resource.Name, msg.Resource.Namespace)
-		m.logsModal.Show(title, desc)
-		m.logsModal.SetDimensions(m.width, m.height)
-		m.showLogsModal = true
+		title := fmt.Sprintf("Describe: %s/%s (namespace: %s)", rt, msg.Resource.Name, displayNamespace)
+		m.describeModal.Show(title, desc, rt, namespace, msg.Resource.Name)
+		m.describeModal.SetDimensions(m.width, m.height)
+		m.describeModal.SetMode(components.DescribeModeRead)
+		m.showDescribeModal = true
+		m.showLogsModal = false
+		m.runningKubectlEdit = false
 		return m, nil
+
+	case kubectlEditFinishedMsg:
+		m.runningKubectlEdit = false
+		cmds := []tea.Cmd{tea.EnterAltScreen}
+
+		if m.showDescribeModal {
+			rt, namespace, name := m.describeModal.TargetInfo()
+			m.describeModal.SetMode(components.DescribeModeRead)
+			if msg.err != nil {
+				m.modal.ShowError("kubectl edit", fmt.Sprintf("kubectl edit failed: %v", msg.err), "Close")
+				m.showModal = true
+				m.showDescribeModal = true
+				return m, tea.Batch(cmds...)
+			}
+			if m.kubeClient != nil && m.describeModal.CanEdit() {
+				desc, err := m.kubeClient.DescribeResource(rt, namespace, name)
+				if err != nil {
+					m.modal.ShowError("Describe Error", fmt.Sprintf("Failed to refresh describe:\n%v", err), "Close")
+					m.showModal = true
+					m.showDescribeModal = true
+					return m, tea.Batch(cmds...)
+				}
+				title := fmt.Sprintf("Describe: %s/%s (namespace: %s)", rt, name, func() string {
+					if strings.TrimSpace(namespace) == "" {
+						return "default"
+					}
+					return namespace
+				}())
+				m.describeModal.Show(title, desc, rt, namespace, name)
+				m.describeModal.SetDimensions(m.width, m.height)
+			}
+		}
+		m.showDescribeModal = true
+		return m, tea.Batch(cmds...)
 	}
 
 	return m, nil
@@ -444,6 +639,17 @@ func (m MainModel) View() string {
 
 	vertical := lipgloss.JoinVertical(lipgloss.Top, m.widgets[0].View(), m.widgets[1].View())
 	horizontal := lipgloss.JoinHorizontal(lipgloss.Top, vertical, m.widgets[2].View())
+
+	if m.showDescribeModal {
+		descContent := m.describeModal.Render()
+		descStyle := lipgloss.NewStyle().
+			Width(m.width).
+			Height(m.height).
+			Align(lipgloss.Center, lipgloss.Center)
+
+		overlay := descStyle.Render(descContent)
+		return overlay
+	}
 
 	if m.showLogsModal {
 		logsContent := m.logsModal.Render()
@@ -486,6 +692,26 @@ func (m MainModel) renderFooter() string {
 		return style.Render(strings.Join(hints, "  |  "))
 	}
 
+	if m.showDescribeModal {
+		if m.describeModal.Mode() == components.DescribeModeRead {
+			hints = append(hints,
+				"↑/↓, j/k: scroll",
+				"pgup/pgdown: page",
+				"g/G, home/end: jump",
+				"ctrl+e: edit",
+				"esc: close",
+				"q: quit",
+			)
+		} else {
+			hints = append(hints,
+				"kubectl edit running",
+				"esc: close",
+				"q: quit",
+			)
+		}
+		return style.Render(strings.Join(hints, "  |  "))
+	}
+
 	if m.showLogsModal {
 		hints = append(hints,
 			"up/down, j/k: scroll",
@@ -513,8 +739,10 @@ func (m MainModel) renderFooter() string {
 			} else if mcw.IsResourcesActive() {
 				hints = append(hints, "j/k, up/down: scroll", "esc: exit")
 				hints = append(hints, "ctrl+w: toggle watch")
-				if sel := mcw.GetSelectedResource(); sel != nil && sel.Type == "Pod" {
-					hints = append(hints, "ctrl+l: view logs")
+				if sel := mcw.GetSelectedResource(); sel != nil {
+					if sel.Type == "Pod" {
+						hints = append(hints, "ctrl+l: view logs")
+					}
 					hints = append(hints, "ctrl+d: describe resource")
 				}
 			} else {

@@ -17,6 +17,7 @@ wget https://github.com/ITPATJIDR/L8zyKube/releases/download/v0.0.1/l8zykube
 - Monitor Kubernetes status and disk usage
 - Dynamic columns in resource Table
 - Log sidecar container
+- remove describe modal and use ctrl+e to use command like kube edit {resource}
 
 
 ### CanDO
