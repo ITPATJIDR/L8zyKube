@@ -8,7 +8,6 @@ wget https://github.com/ITPATJIDR/L8zyKube/releases/download/v0.0.1/l8zykube
 ```
 
 ### TODO
-- Watch resource 
 - Delete resource
 - Create resource 
     - Can Copy & Paste from Clipboard
@@ -16,6 +15,8 @@ wget https://github.com/ITPATJIDR/L8zyKube/releases/download/v0.0.1/l8zykube
 - Error Optimization
 - Switch context
 - Monitor Kubernetes status and disk usage
+- Dynamic columns in resource Table
+- Log sidecar container
 
 
 ### CanDO
@@ -23,3 +24,4 @@ wget https://github.com/ITPATJIDR/L8zyKube/releases/download/v0.0.1/l8zykube
 - View logs resource
 - Describe resource 
 - ApiResouce Can Search
+- Watch resource 

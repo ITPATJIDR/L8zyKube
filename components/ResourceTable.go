@@ -34,17 +34,14 @@ func (rt *ResourceTable) SetResources(title string, resources []kubetypes.Resour
 	rt.Active = false
 }
 
-// UpdateResourcesOnly updates only the resources without resetting state (for watch mode)
 func (rt *ResourceTable) UpdateResourcesOnly(title string, resources []kubetypes.ResourceInfo) {
 	rt.Title = title
 	rt.Resources = resources
 
-	// Clamp selected index if needed
 	if rt.SelectedIndex >= len(rt.Resources) {
 		rt.SelectedIndex = maxInt(len(rt.Resources)-1, 0)
 	}
 
-	// Adjust scroll offset if needed
 	innerHeight := rt.Height
 	if innerHeight <= 0 {
 		innerHeight = 37

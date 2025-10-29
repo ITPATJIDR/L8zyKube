@@ -86,7 +86,7 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 				a.searchActive = false
 				a.searchQuery = ""
 				a.updateFilteredList()
-			case "backspace":
+			case "backspace", tea.KeyBackspace.String():
 				if len(a.searchQuery) > 0 {
 					a.searchQuery = a.searchQuery[:len(a.searchQuery)-1]
 					a.updateFilteredList()
@@ -126,7 +126,6 @@ func (a *ApiResourceWidget) SetApiResourceList(resources []string) {
 	a.ensureSelectionVisible()
 }
 
-// updateFilteredList filters the API resource list based on the search query
 func (a *ApiResourceWidget) updateFilteredList() {
 	if a.searchQuery == "" {
 		a.filteredList = a.ApiResourceList
@@ -271,7 +270,6 @@ func (a *ApiResourceWidget) View() string {
 	return style.Render(content)
 }
 
-// Helpers
 func (a *ApiResourceWidget) IsListActive() bool {
 	return a.listActive
 }

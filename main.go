@@ -27,6 +27,8 @@ type MainModel struct {
 	watchNamespace string
 }
 
+type WatchTick struct{}
+
 func initialModel() MainModel {
 	widgets := []widgets.Widget{
 		widgets.NewNameSpaceWidget(),
@@ -75,15 +77,10 @@ func (m MainModel) Init() tea.Cmd {
 	return nil
 }
 
-// WatchTick is emitted every second while watch is active
-type WatchTick struct{}
-
-// watchTickCmd schedules the next tick
 func watchTickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(_ time.Time) tea.Msg { return WatchTick{} })
 }
 
-// normalizeResourceTypeForFetch converts singular/capitalized types to canonical names
 func normalizeResourceTypeForFetch(rt string) string {
 	r := strings.ToLower(strings.TrimSpace(rt))
 	switch r {
@@ -129,7 +126,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showLogsModal = false
 				return m, nil
 			}
-			// If ApiResourceWidget is active, deactivate it
 			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
 				if apiResourceWidget.IsListActive() {
 					var cmd tea.Cmd
@@ -137,7 +133,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 			}
-			// If MainContent is in selection mode, exit it
 			if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 				if mainContentWidget.SelectionNameSpace {
 					mainContentWidget.SetSelectionNameSpace(false)
@@ -147,14 +142,11 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			// Route Escape key to the focused widget for other cases
 			if m.focusedWidget < len(m.widgets) {
 				var cmd tea.Cmd
 				m.widgets[m.focusedWidget], cmd = m.widgets[m.focusedWidget].Update(msg)
 				return m, cmd
 			}
-
-		// ctrl+l and ctrl+d handled by MainContentWidget; see custom messages
 
 		case "up":
 			if m.showLogsModal {
@@ -205,7 +197,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "j", "k":
-			// If logs modal is showing, handle scrolling
 			if m.showLogsModal {
 				if msg.String() == "j" {
 					m.logsModal.ScrollDown()
@@ -215,7 +206,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// If MainContent is in selection mode or resources-active, route j/k to it
 			if mainContentWidget, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 				if m.focusedWidget == 2 && (mainContentWidget.SelectionNameSpace || mainContentWidget.IsResourcesActive()) {
 					var cmd tea.Cmd
@@ -224,7 +214,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// If ApiResourceWidget is focused and activated, route j/k to it
 			if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
 				if m.focusedWidget == 1 && apiResourceWidget.IsListActive() {
 					var cmd tea.Cmd
@@ -233,7 +222,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// Otherwise, switch widgets
 			oldIndex := m.focusedWidget
 			if msg.String() == "j" {
 				m.focusedWidget--
@@ -257,16 +245,13 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.focusedWidget == 1 && msg.String() == tea.KeyEnter.String() {
 					var cmd tea.Cmd
 					m.widgets[1], cmd = m.widgets[1].Update(msg)
-					// If already active, Enter selects and we fetch details
 					if apiResourceWidget.IsListActive() {
 						selectedResource := apiResourceWidget.GetSelectedApiResource()
 						if selectedResource != "" && m.kubeClient != nil {
-							// Determine current namespace
 							currentNS := "default"
 							if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
 								currentNS = namespaceWidget.GetSelectedNameSpace()
 							}
-							// Fetch resources and render in main content
 							resources, err := m.kubeClient.GetResourceListDetailed(selectedResource, currentNS)
 							if err != nil {
 								fmt.Printf("Error fetching %s in %s: %v\n", selectedResource, currentNS, err)
@@ -298,15 +283,12 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 
-					// Handle Enter key in MainContent when in selection mode
 					if m.focusedWidget == 2 && mainContentWidget.SelectionNameSpace && msg.String() == tea.KeyEnter.String() {
-						// Select current item and exit selection mode
 						selectedNS := mainContentWidget.GetSelectedNamespace()
 						if selectedNS != "" {
 							namespaceWidget.SetSelectedNameSpace(selectedNS)
 							mainContentWidget.SetSelectionNameSpace(false)
 
-							// Load API resources for the selected namespace
 							if m.kubeClient != nil {
 								if apiResourceWidget, ok := m.widgets[1].(*widgets.ApiResourceWidget); ok {
 									apiResources, err := m.kubeClient.GetAPIResources()
@@ -340,7 +322,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Handle custom messages emitted by widgets
 	switch msg := msg.(type) {
 	case widgets.ShowLogsRequest:
 		if m.kubeClient == nil {
@@ -371,11 +352,9 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showModal = true
 			return m, nil
 		}
-		// Normalize resource type for fetching
 		rt := normalizeResourceTypeForFetch(msg.ResourceType)
 		ns := msg.Namespace
 		if ns == "" {
-			// Fallback to currently selected namespace if available
 			if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
 				ns = namespaceWidget.GetSelectedNameSpace()
 			}
@@ -384,10 +363,8 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Toggle behavior: if same watch target, stop; otherwise start new watch
 		if m.watching && m.watchResource == rt && m.watchNamespace == ns {
 			m.watching = false
-			// Clear watching flag in the resource table
 			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 				mainContent.SetWatching(false)
 			}
@@ -398,10 +375,8 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.watchResource = rt
 		m.watchNamespace = ns
 
-		// Do an immediate refresh and then schedule ticks
 		if resources, err := m.kubeClient.GetResourceListDetailed(rt, ns); err == nil {
 			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
-				// Preserve Active/scroll state when starting watch
 				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", rt, ns), resources)
 				mainContent.SetWatching(true)
 			}
@@ -412,7 +387,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.watching || m.kubeClient == nil {
 			return m, nil
 		}
-		// Periodic refresh - use UpdateResourcesOnly to preserve Active state and scroll position
 		if resources, err := m.kubeClient.GetResourceListDetailed(m.watchResource, m.watchNamespace); err == nil {
 			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", m.watchResource, m.watchNamespace), resources)

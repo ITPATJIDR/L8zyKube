@@ -164,7 +164,6 @@ func (m *MainContentWidget) SetResourcesDetailed(title string, resources []kubet
 	m.resourceTable.SetResources(title, resources)
 }
 
-// UpdateResourcesOnly updates only the resources without resetting state (for watch mode)
 func (m *MainContentWidget) UpdateResourcesOnly(title string, resources []kubetypes.ResourceInfo) {
 	m.resourceTable.UpdateResourcesOnly(title, resources)
 }

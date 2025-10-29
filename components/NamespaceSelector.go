@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// NamespaceItem represents an item in the namespace list
 type NamespaceItem struct {
 	title, desc string
 }

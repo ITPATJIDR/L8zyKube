@@ -189,7 +189,6 @@ func (m *Modal) Render() string {
 	return modalStyle.Render(content)
 }
 
-// Helper functions for common modal types
 func (m *Modal) ShowError(title, message string, buttons string) {
 	m.ShowWithType(title, message, ModalError)
 	if buttons != "" {
