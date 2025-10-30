@@ -86,7 +86,7 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 				a.searchActive = false
 				a.searchQuery = ""
 				a.updateFilteredList()
-			case "backspace", "ctrl+h":
+			case "backspace", "ctrl+h", "backspace2", "\x7f":
 				if len(a.searchQuery) > 0 {
 					a.searchQuery = a.searchQuery[:len(a.searchQuery)-1]
 					a.updateFilteredList()
@@ -104,7 +104,6 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 					a.selectedIndex++
 				}
 			default:
-				fmt.Println("key", key)
 				if m.Type == tea.KeyRunes {
 					a.searchQuery += m.String()
 					a.updateFilteredList()
