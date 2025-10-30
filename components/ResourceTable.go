@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	kubetypes "l8zykube/kubernetes"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -229,12 +230,44 @@ func (rt *ResourceTable) Render() string {
 		contentWidth = 20
 	}
 
+	// Determine if namespace column should be rendered
+	showNamespace := false
+	if len(rt.Resources) > 0 {
+		unique := make(map[string]struct{})
+		for _, res := range rt.Resources {
+			ns := strings.TrimSpace(res.Namespace)
+			if ns != "" {
+				unique[strings.ToLower(ns)] = struct{}{}
+			}
+			if len(unique) > 1 {
+				showNamespace = true
+				break
+			}
+		}
+		if !showNamespace {
+			lowerTitle := strings.ToLower(rt.Title)
+			if strings.Contains(lowerTitle, "all namespace") {
+				showNamespace = true
+			}
+		}
+	}
+
 	// Column widths
 	readyW, statusW, ageW, ipW := 7, 12, 12, 15
+	nsW := 0
 	spaces := 4
-	nameW := contentWidth - (readyW + statusW + ageW + ipW + spaces)
+	if showNamespace {
+		nsW = 15
+		spaces++
+	}
+	nameW := contentWidth - (readyW + statusW + ageW + ipW + nsW + spaces)
 	if nameW < 10 {
 		delta := 10 - nameW
+		if showNamespace {
+			reduceNS := minInt(delta, nsW-8)
+			nsW -= reduceNS
+			delta -= reduceNS
+		}
 		reduceIP := minInt(delta, ipW-8)
 		ipW -= reduceIP
 		delta -= reduceIP
@@ -266,17 +299,21 @@ func (rt *ResourceTable) Render() string {
 		return string(r[:w-1]) + "…"
 	}
 
+	headerColumns := []string{pad(trunc("NAME", nameW), nameW)}
+	if showNamespace {
+		headerColumns = append(headerColumns, pad(trunc("NAMESPACE", nsW), nsW))
+	}
+	headerColumns = append(headerColumns,
+		pad(trunc("READY", readyW), readyW),
+		pad(trunc("STATUS", statusW), statusW),
+		pad(trunc("AGE", ageW), ageW),
+		pad(trunc("IP", ipW), ipW),
+	)
 	header := lipgloss.NewStyle().
 		PaddingLeft(2).
 		Foreground(lipgloss.Color("240")).
 		Bold(true).
-		Render(
-			pad(trunc("NAME", nameW), nameW) + " " +
-				pad(trunc("READY", readyW), readyW) + " " +
-				pad(trunc("STATUS", statusW), statusW) + " " +
-				pad(trunc("AGE", ageW), ageW) + " " +
-				pad(trunc("IP", ipW), ipW),
-		)
+		Render(strings.Join(headerColumns, " "))
 
 	// Build rows within available height and apply scrolling
 	innerHeight := rt.Height
@@ -313,11 +350,21 @@ func (rt *ResourceTable) Render() string {
 	}
 	for i := start; i < end; i++ {
 		r := rt.Resources[i]
-		line := pad(trunc(r.Name, nameW), nameW) + " " +
-			pad(trunc(r.Ready, readyW), readyW) + " " +
-			pad(trunc(r.Status, statusW), statusW) + " " +
-			pad(trunc(r.Age, ageW), ageW) + " " +
-			pad(trunc(r.IP, ipW), ipW)
+		lineColumns := []string{pad(trunc(r.Name, nameW), nameW)}
+		if showNamespace {
+			ns := strings.TrimSpace(r.Namespace)
+			if ns == "" {
+				ns = "<cluster>"
+			}
+			lineColumns = append(lineColumns, pad(trunc(ns, nsW), nsW))
+		}
+		lineColumns = append(lineColumns,
+			pad(trunc(r.Ready, readyW), readyW),
+			pad(trunc(r.Status, statusW), statusW),
+			pad(trunc(r.Age, ageW), ageW),
+			pad(trunc(r.IP, ipW), ipW),
+		)
+		line := strings.Join(lineColumns, " ")
 
 		// Highlight selected row
 		if i == rt.SelectedIndex && rt.Active {

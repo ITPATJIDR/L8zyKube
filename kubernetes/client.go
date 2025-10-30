@@ -33,6 +33,14 @@ type ResourceInfo struct {
 	Type      string
 }
 
+func normalizeNamespaceForList(namespace string) (string, bool) {
+	trimmed := strings.TrimSpace(namespace)
+	if trimmed == "" || strings.EqualFold(trimmed, "all") {
+		return metav1.NamespaceAll, true
+	}
+	return trimmed, false
+}
+
 type KubeClient struct {
 	clientset *kubernetes.Clientset
 	config    *rest.Config
@@ -167,6 +175,7 @@ func (k *KubeClient) resolveResourceGVR(resource string) (schema.GroupVersionRes
 // listGenericResources lists any resource via the dynamic client and converts it
 // to a minimal []ResourceInfo for UI consumption.
 func (k *KubeClient) listGenericResources(resource, namespace string) ([]ResourceInfo, error) {
+	ns, isAll := normalizeNamespaceForList(namespace)
 	gvr, namespaced, err := k.resolveResourceGVR(resource)
 	if err != nil {
 		return nil, err
@@ -174,7 +183,11 @@ func (k *KubeClient) listGenericResources(resource, namespace string) ([]Resourc
 
 	var ulist *unstructured.UnstructuredList
 	if namespaced {
-		ulist, err = k.dynamic.Resource(gvr).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+		if isAll {
+			ulist, err = k.dynamic.Resource(gvr).List(context.TODO(), metav1.ListOptions{})
+		} else {
+			ulist, err = k.dynamic.Resource(gvr).Namespace(ns).List(context.TODO(), metav1.ListOptions{})
+		}
 	} else {
 		ulist, err = k.dynamic.Resource(gvr).List(context.TODO(), metav1.ListOptions{})
 	}
@@ -209,7 +222,8 @@ func (k *KubeClient) listGenericResources(resource, namespace string) ([]Resourc
 
 // GetPodsDetailed returns detailed pod information
 func (k *KubeClient) GetPodsDetailed(namespace string) ([]ResourceInfo, error) {
-	pods, err := k.clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
+	ns, _ := normalizeNamespaceForList(namespace)
+	pods, err := k.clientset.CoreV1().Pods(ns).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pods in namespace %s: %v", namespace, err)
 	}
@@ -277,7 +291,8 @@ func (k *KubeClient) GetPodsDetailed(namespace string) ([]ResourceInfo, error) {
 
 // GetServicesDetailed returns detailed service information
 func (k *KubeClient) GetServicesDetailed(namespace string) ([]ResourceInfo, error) {
-	services, err := k.clientset.CoreV1().Services(namespace).List(context.TODO(), metav1.ListOptions{})
+	ns, _ := normalizeNamespaceForList(namespace)
+	services, err := k.clientset.CoreV1().Services(ns).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services in namespace %s: %v", namespace, err)
 	}
@@ -336,7 +351,8 @@ func (k *KubeClient) GetServicesDetailed(namespace string) ([]ResourceInfo, erro
 
 // GetDeploymentsDetailed returns detailed deployment information
 func (k *KubeClient) GetDeploymentsDetailed(namespace string) ([]ResourceInfo, error) {
-	deployments, err := k.clientset.AppsV1().Deployments(namespace).List(context.TODO(), metav1.ListOptions{})
+	ns, _ := normalizeNamespaceForList(namespace)
+	deployments, err := k.clientset.AppsV1().Deployments(ns).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list deployments in namespace %s: %v", namespace, err)
 	}

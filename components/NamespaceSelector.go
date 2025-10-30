@@ -55,19 +55,23 @@ func (ns *NamespaceSelector) Update(msg tea.Msg) tea.Cmd {
 func (ns *NamespaceSelector) SetNamespaceList(namespaces []string) {
 	ns.NamespaceList = namespaces
 
-	items := make([]list.Item, len(namespaces))
-	for i, ns := range namespaces {
-		items[i] = NamespaceItem{
-			title: ns,
-			desc:  fmt.Sprintf("Namespace: %s", ns),
-		}
+	items := make([]list.Item, 0, len(namespaces)+1)
+
+	items = append(items, NamespaceItem{
+		title: "All",
+		desc:  "Namespace: All namespaces",
+	})
+	for _, nsName := range namespaces {
+		items = append(items, NamespaceItem{
+			title: nsName,
+			desc:  fmt.Sprintf("Namespace: %s", nsName),
+		})
 	}
 
 	ns.list.SetItems(items)
 }
 
 func (ns *NamespaceSelector) GetSelectedNamespace() string {
-	// Get the currently selected item from the list
 	if selectedItem := ns.list.SelectedItem(); selectedItem != nil {
 		if item, ok := selectedItem.(NamespaceItem); ok {
 			return item.title

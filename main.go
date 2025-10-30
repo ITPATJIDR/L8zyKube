@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type MainModel struct {
@@ -104,6 +105,28 @@ func normalizeResourceTypeForFetch(rt string) string {
 		return "deployments"
 	}
 	return r
+}
+
+func resolveNamespaceSelection(selection string) (string, string) {
+	trimmed := strings.TrimSpace(selection)
+	if trimmed == "" {
+		trimmed = "default"
+	}
+	if strings.EqualFold(trimmed, "all") {
+		return metav1.NamespaceAll, "All namespaces"
+	}
+	return trimmed, trimmed
+}
+
+func namespaceDisplayFromQuery(namespace string) string {
+	trimmed := strings.TrimSpace(namespace)
+	if trimmed == "" || trimmed == metav1.NamespaceAll {
+		return "All namespaces"
+	}
+	if strings.EqualFold(trimmed, "all") {
+		return "All namespaces"
+	}
+	return trimmed
 }
 
 func determineKubectlEditor() string {
@@ -399,15 +422,16 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if apiResourceWidget.IsListActive() {
 						selectedResource := apiResourceWidget.GetSelectedApiResource()
 						if selectedResource != "" && m.kubeClient != nil {
-							currentNS := "default"
+							selectedNamespace := ""
 							if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
-								currentNS = namespaceWidget.GetSelectedNameSpace()
+								selectedNamespace = namespaceWidget.GetSelectedNameSpace()
 							}
-							resources, err := m.kubeClient.GetResourceListDetailed(selectedResource, currentNS)
+							queryNS, displayNS := resolveNamespaceSelection(selectedNamespace)
+							resources, err := m.kubeClient.GetResourceListDetailed(selectedResource, queryNS)
 							if err != nil {
-								fmt.Printf("Error fetching %s in %s: %v\n", selectedResource, currentNS, err)
+								fmt.Printf("Error fetching %s in %s: %v\n", selectedResource, displayNS, err)
 							} else if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
-								mainContent.SetResourcesDetailed(fmt.Sprintf("%s in %s", selectedResource, currentNS), resources)
+								mainContent.SetResourcesDetailed(fmt.Sprintf("%s in %s", selectedResource, displayNS), resources)
 							}
 						}
 					}
@@ -506,31 +530,31 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		rt := normalizeResourceTypeForFetch(msg.ResourceType)
-		ns := msg.Namespace
-		if ns == "" {
-			if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
-				ns = namespaceWidget.GetSelectedNameSpace()
-			}
-			if ns == "" {
-				ns = "default"
-			}
+		nsSelection := ""
+		if namespaceWidget, ok := m.widgets[0].(*widgets.NameSpaceWidget); ok {
+			nsSelection = namespaceWidget.GetSelectedNameSpace()
 		}
+		if nsSelection == "" {
+			nsSelection = msg.Namespace
+		}
+		queryNamespace, displayNamespace := resolveNamespaceSelection(nsSelection)
 
-		if m.watching && m.watchResource == rt && m.watchNamespace == ns {
+		if m.watching && m.watchResource == rt && m.watchNamespace == queryNamespace {
 			m.watching = false
 			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
 				mainContent.SetWatching(false)
 			}
+			m.watchNamespace = ""
 			return m, nil
 		}
 
 		m.watching = true
 		m.watchResource = rt
-		m.watchNamespace = ns
+		m.watchNamespace = queryNamespace
 
-		if resources, err := m.kubeClient.GetResourceListDetailed(rt, ns); err == nil {
+		if resources, err := m.kubeClient.GetResourceListDetailed(rt, queryNamespace); err == nil {
 			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
-				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", rt, ns), resources)
+				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", rt, displayNamespace), resources)
 				mainContent.SetWatching(true)
 			}
 		}
@@ -542,7 +566,8 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if resources, err := m.kubeClient.GetResourceListDetailed(m.watchResource, m.watchNamespace); err == nil {
 			if mainContent, ok := m.widgets[2].(*widgets.MainContentWidget); ok {
-				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", m.watchResource, m.watchNamespace), resources)
+				displayNamespace := namespaceDisplayFromQuery(m.watchNamespace)
+				mainContent.UpdateResourcesOnly(fmt.Sprintf("%s in %s", m.watchResource, displayNamespace), resources)
 			}
 		}
 		return m, watchTickCmd()
