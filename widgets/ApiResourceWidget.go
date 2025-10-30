@@ -86,7 +86,7 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 				a.searchActive = false
 				a.searchQuery = ""
 				a.updateFilteredList()
-			case "backspace", tea.KeyBackspace.String():
+			case "backspace", "ctrl+h":
 				if len(a.searchQuery) > 0 {
 					a.searchQuery = a.searchQuery[:len(a.searchQuery)-1]
 					a.updateFilteredList()
