@@ -104,6 +104,7 @@ func (a *ApiResourceWidget) Update(msg tea.Msg) (Widget, tea.Cmd) {
 					a.selectedIndex++
 				}
 			default:
+				fmt.Println("key", key)
 				if m.Type == tea.KeyRunes {
 					a.searchQuery += m.String()
 					a.updateFilteredList()
