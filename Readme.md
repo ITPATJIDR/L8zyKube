@@ -5,6 +5,8 @@
 ## Install 
 ```
 wget https://github.com/ITPATJIDR/L8zyKube/releases/download/v0.0.1/l8zykube
+sudo chmod +x ./l8zykube
+sudo mv ./l8zykube /usr/local/bin/
 ```
 
 ### TODO
