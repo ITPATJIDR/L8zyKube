@@ -19,7 +19,6 @@ sudo mv ./l8zykube /usr/local/bin/
 - Monitor Kubernetes status and disk usage
 - Dynamic columns in resource Table
 - Log sidecar container
-- remove describe modal and use ctrl+e to use command like kube edit {resource}
 
 
 ### CanDO
@@ -29,3 +28,8 @@ sudo mv ./l8zykube /usr/local/bin/
 - ApiResouce Can Search
 - Watch resource 
 - Edit resource 
+
+
+### Task
+- remove describe modal and use ctrl+e to use command like kube edit {resource}
+- fix overflow went so many result in maincontent 
