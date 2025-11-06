@@ -14,6 +14,7 @@ sudo mv ./l8zykube /usr/local/bin/
 - Create resource 
     - Can Copy & Paste from Clipboard
     - Simple template
+    - Add Create mode So Kube need to create manifest file process include it to Lazykube
 - Error Optimization
 - Switch context
 - Monitor Kubernetes status and disk usage
