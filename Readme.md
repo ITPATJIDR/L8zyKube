@@ -17,7 +17,6 @@ sudo mv ./l8zykube /usr/local/bin/
 - Error Optimization
 - Switch context
 - Monitor Kubernetes status and disk usage
-- Dynamic columns in resource Table
 - Log sidecar container
 
 
@@ -33,3 +32,4 @@ sudo mv ./l8zykube /usr/local/bin/
 ### Task
 - remove describe modal and use ctrl+e to use command like kube edit {resource}
 - fix overflow went so many result in maincontent 
+- Dynamic columns in resource Table
