@@ -19,6 +19,7 @@ sudo mv ./l8zykube /usr/local/bin/
 - Switch context
 - Monitor Kubernetes status and disk usage
 - Log sidecar container
+- Display Lable
 
 
 ### CanDO
